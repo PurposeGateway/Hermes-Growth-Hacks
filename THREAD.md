@@ -2,131 +2,124 @@
 TWITTER/X THREAD — "How to Run a Zero-Human Agent Fleet on Hermes"
 ================================================================================
 Post as a thread. Each numbered block = one tweet (within 280 chars each).
+Structure: USE CASE → PROBLEMS (with impact) → FIX
 ================================================================================
 
 THREAD START
 
-🧵 1/10
-Most people set up Hermes, get one agent running, and call it done.
+🧵 1/
+We run a zero-human lab. Multiple entities, multiple agents, zero humans checking in.
 
-What nobody warns you: the moment you need five agents working as a team — each with their own memory, Telegram bot, and cron schedule — the defaults fall apart.
+We needed 5 Hermes agents firing simultaneously — each with their own memory, Telegram bot, and cron schedule — all running autonomously.
 
-This is the field manual nobody wrote.
-
----
-
-🧵 2/10
-Hermes was designed around one assumption: one agent, one user, one gateway.
-
-Your zero-human lab needs five agents firing simultaneously, sharing context, delivering results, running on schedules with no human in the loop.
-
-That is not a bug. It is a design gap. And every gap has a patch.
+What nobody tells you: Hermes's defaults assume one agent. The moment you scale past that, everything breaks in ways that look like bugs but are actually design assumptions.
 
 ---
 
-🧵 3/10
-The fleet architecture: one codebase, five isolated gateways.
+🧵 2/
+ISSUE 1: Sequential cron execution
 
-Same hermes-agent/ install on disk. Each agent gets its own profile directory (Hermes's native multi-user system). Each profile = isolated memory, state, sessions, cron DB.
+The default tick() runs all due jobs one at a time. Our CEO heartbeat takes 20 minutes.
 
-No two agents can overwrite each other's state. Ever.
-
----
-
-🧵 4/10
-One Telegram bot per agent. Each bot lives in its own group/topic.
-
-CEO agent → your direct messages
-BMM agent → BMM customer topic
-Lab agent → lab topic
-BA agent → triggered by the word "analyst"
-
-Routing by mention pattern. Clean separation. No cross-talk.
+Impact: while the CEO heartbeat ran, every other agent's cron jobs queued behind it. BMM support missed its hour trigger. Siren missed its daily batch. The Lab agent never fired on schedule. Everything stacked up waiting for one job to finish.
 
 ---
 
-🧵 5/10
-Here is what the defaults get wrong — and why each patch exists:
+🧵 3/
+ISSUE 2: HERMES_EXEC_ASK = "1" hardcoded at startup
 
-PATCH 1: User-Agent
-api.kimi.com rejects everything except claude-code/1.0. Swap it in two places in run_agent.py.
+Hermes locks this to 1 on gateway boot — every command pauses waiting for human approval.
 
-PATCH 2: AGENTS.md symlink
-Gateway loads from CWD. Symlink it to your actual operating manual so it loads every cycle.
+Impact: cron jobs running on a schedule stopped dead waiting for a human who wasn't there. The moment you need agents to run unattended, this breaks the entire autonomous operation model.
 
 ---
 
-🧵 6/10
-PATCH 3: Concurrent cron (THE BIG ONE)
-Default tick() runs jobs sequentially. A 20-min CEO heartbeat blocked ALL other agents.
+🧵 4/
+ISSUE 3: skip_memory = True in cron (default)
 
-Fix: ThreadPoolExecutor runs due jobs in parallel. With 20 workers, five agents can all fire simultaneously without blocking each other.
+Cron jobs run without access to the memory system by default.
 
-PATCH 4: HERMES_EXEC_ASK = "0"
-Hardcoded approval prompt breaks autonomous cron. Force it to auto-approve so jobs run without stopping for a human.
+Impact: Our CEO agent processes the world, writes findings to a shared brain. Other agents read from that brain during their own cycles. With skip_memory=True, that write channel closes during cron execution. The Lab agent runs on stale data. The whole coordination system fails silently.
 
 ---
 
-🧵 7/10
-PATCH 5: skip_memory=False + messaging enabled
-Default cron blocks both. That means: agents can't write memory mid-cron, and can't send Telegram messages during execution.
+🧵 5/
+ISSUE 4: messaging disabled in cron (default)
 
-In a team, the CEO writes to the brain. Downstream agents read from it. If that channel closes during cron execution, your lab agent runs on stale data.
+The messaging toolset is blocked during cron execution.
 
----
-
-🧵 8/10
-PATCH 6: Telegram RetryAfter flood control
-python-telegram-bot's RetryAfter is NOT a subclass of NetworkError. The gateway was swallowing flood control exceptions silently. Messages just... stopped sending.
-
-Fix: catch RetryAfter explicitly, wait the specified duration, retry.
+Impact: agents couldn't send results to Telegram during job execution. Cron runs completed but nobody saw the output. We had to build workarounds to get results delivered at all.
 
 ---
 
-🧵 9/10
-The re-apply script is the key to the whole system.
+🧵 6/
+ISSUE 5: Telegram flood control swallowed silently
 
-Every Hermes update overwrites the codebase and wipes these changes. Run one script after every update:
+python-telegram-bot's RetryAfter exception is NOT a subclass of NetworkError. The gateway's catch block never caught it.
 
-bash ~/company/hermes/patches/reapply-all-patches.sh
-
-Patches are the only fragile part. The architecture — profiles, PM2, Telegram bots — survives updates intact.
+Impact: when agents sent messages rapidly, Telegram's flood control kicked in, RetryAfter fired, nobody caught it — messages just stopped sending. No error shown. No retry. Silent death.
 
 ---
 
-🧵 10/10
-Give this to an agent and tell it to implement it:
+🧵 7/
+ISSUE 6: Kimi API User-Agent rejection
 
-1. Install Hermes once at ~/.hermes/hermes-agent
-2. Create one profile per agent at ~/.hermes/profiles/<name>/
-3. One Telegram bot per agent in its own topic
-4. PM2 ecosystem config: HERMES_HOME, TELEGRAM_BOT_TOKEN, HERMES_CRON_MAX_WORKERS=20, HERMES_EXEC_ASK=0
-5. Run the patch re-apply script after every Hermes update
-6. Stagger cron schedules
-7. Share context via shared brain files; per-profile memory for agent-local state
+api.kimi.com rejects every User-Agent except a short list of whitelisted coding agents. Hermes ships with KimiCLI/1.3.
+
+Impact: every API call to Kimi failed silently. No error shown. Agents just... didn't get responses. Diagnosing this was painful.
+
+---
+
+🧵 8/
+THE FIX: One codebase, six isolated gateway processes.
+
+Same hermes-agent/ install on disk. Each agent runs as a separate OS process with its own HERMES_HOME pointing to its own profile directory — Hermes's native multi-user isolation. Isolated memory, state, sessions, cron DB. No two agents can overwrite each other's state.
+
+Each with its own Telegram bot in its own group/topic. Routing by mention pattern.
+
+Six PM2 entries. Six processes. Six isolated HERMES_HOME values. The cron scheduler lives inside each process — so each agent's cron fires on its own schedule without blocking others.
+
+---
+
+🧵 9/
+Then six patches:
+
+1. User-Agent → claude-code/1.0 (Kimi API fix)
+2. AGENTS.md symlink → loads your actual operating manual
+3. ThreadPoolExecutor concurrent cron → agents run in parallel, 20 workers max
+4. HERMES_EXEC_ASK=0 hardcoded → autonomous operation, no human in the loop
+5. skip_memory=False + messaging enabled → brain writes survive cron, results deliver to Telegram
+6. Telegram RetryAfter caught explicitly → flood control handled, messages delivered reliably
+
+---
+
+🧵 10/
+Every Hermes update wipes the codebase and wipes all patches. We built a re-apply script that runs after every update, detects what's already applied, restores what isn't — in seconds. Idempotent by design.
 
 Zero humans. Five agents. One coordinated fleet.
 
----
+Full field manual with architecture, all patches, re-apply script, and detection patterns:
+
+github.com/PurposeGateway/Hermes-Growth-Hacks
+
 ================================================================================
-ALTERNATE OPENING HOOK (more punchy, shorter)
+ALTERNATE OPENING HOOK (more punchy)
 ================================================================================
 
-"Hermes breaks the moment you scale past one agent.
+"We needed 5 Hermes agents running simultaneously — each with their own memory, Telegram bot, and cron schedule.
 
-Not because it's bad software — because it wasn't designed for a zero-human lab running five agents simultaneously.
+What nobody warns you: Hermes's defaults assume one agent. Everything breaks the moment you scale past that.
 
-Here's the complete field manual for building an agent fleet on Hermes that actually works — including the six patches nobody tells you about."
+Here's the complete field manual — including the 6 patches nobody tells you about."
 
-[CONTINUE FROM TWEET 3 ABOVE]
+[CONTINUE FROM TWEET 2 ABOVE]
 
----
 ================================================================================
 SINGLE-TWEET VERSION (280 chars)
 ================================================================================
 
-"Hermes breaks past one agent. Not a bug — a design gap.
-Here's the complete field manual for a zero-human fleet: 5 agents, 5 bots, concurrent cron, shared brain, no humans.
-6 patches. 1 re-apply script. Full guide below."
+"Hermes breaks past one agent. Not a bug — design assumptions.
+We needed 5 agents, 6 patches, concurrent cron, shared brain, zero humans.
+Here's the full field manual: github.com/PurposeGateway/Hermes-Growth-Hacks"
 
 ================================================================================
