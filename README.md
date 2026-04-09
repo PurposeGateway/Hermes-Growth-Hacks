@@ -72,7 +72,7 @@ Each gateway agent with its own Telegram bot in its own group/topic. Routing by 
 | # | Patch | File | Fix |
 |---|-------|------|-----|
 | 1 | User-Agent → `claude-code/1.0` | `run_agent.py` | Kimi API works |
-| 2 | AGENTS.md symlink | `hermes-agent/AGENTS.md` | Your operating manual loads every cycle |
+| 2 | ThreadPoolExecutor concurrent cron | `cron/scheduler.py` | Agents run in parallel, 20 workers max |
 | 3 | ThreadPoolExecutor concurrent cron | `cron/scheduler.py` | Agents run in parallel, 20 workers max |
 | 4 | `HERMES_EXEC_ASK = "0"` | `gateway/run.py` | Autonomous operation, no human in the loop |
 | 5 | `skip_memory=False` + messaging enabled | `cron/scheduler.py` | Brain writes survive cron, results deliver to Telegram |
