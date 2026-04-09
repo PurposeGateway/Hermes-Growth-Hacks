@@ -73,9 +73,9 @@ Each gateway agent with its own Telegram bot in its own group/topic. Routing by 
 |---|-------|------|-----|
 | 1 | User-Agent → `claude-code/1.0` | `run_agent.py` | Kimi API works |
 | 2 | ThreadPoolExecutor concurrent cron | `cron/scheduler.py` | Agents run in parallel, 20 workers max |
-| 3 | ThreadPoolExecutor concurrent cron | `cron/scheduler.py` | Agents run in parallel, 20 workers max |
-| 4 | `HERMES_EXEC_ASK = "0"` | `gateway/run.py` | Autonomous operation, no human in the loop |
-| 5 | `skip_memory=False` + messaging enabled | `cron/scheduler.py` | Brain writes survive cron, results deliver to Telegram |
+| 3 | `HERMES_EXEC_ASK = "0"` | `gateway/run.py` | Autonomous operation, no human in the loop |
+| 4 | `skip_memory=False` + messaging enabled | `cron/scheduler.py` | Brain writes survive cron, results deliver to Telegram |
+| 5 | `HERMES_CRON_TIMEOUT = 1200` | `cron/scheduler.py` | CEO heartbeat fits within 20-min timeout |
 | 6 | Telegram `RetryAfter` caught explicitly | `gateway/platforms/telegram.py` | Flood control handled, messages delivered |
 
 ---
@@ -83,7 +83,7 @@ Each gateway agent with its own Telegram bot in its own group/topic. Routing by 
 ## Quick Start
 
 ```bash
-# 1. Install Hermes once at ~/.hermes/hermes-agent
+# 1. Install Hermes (note your install path)
 # 2. Create one profile per gateway agent at ~/.hermes/profiles/<name>/
 # 3. One Telegram bot per gateway agent, each in its own group/topic
 # 4. PM2 ecosystem config — one entry per gateway agent with its own HERMES_HOME
