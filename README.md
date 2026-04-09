@@ -1,33 +1,37 @@
 # Hermes Growth Hacks
 
-Patches and field manuals for running a zero-human, multi-agent fleet on Hermes.
+Patches and field manuals for running a zero-human, multi-agent fleet on Hermes. This repo grows as we build — each problem we solve goes here.
 
 ---
 
 ## What This Is
 
-Hermes is a multi-agent AI system. Out of the box, it runs one agent, one user, one gateway. Fine for experimentation. Not fine when you need five agents firing simultaneously — each with their own memory, Telegram bot, and cron schedule — with zero humans checking in.
+We're a zero-human lab. Multiple entities, over 10 agents running simultaneously — full gateway agents for the heavy workloads (CEO, Lab, BMM, Siren, Business Analyst), in-memory workers spawned by cron for lighter continuous tasks (Knowledge Extractor, Team State Engineer, Process Engineer, Epoch Evaluator).
 
-This repo is the field manual we built for exactly that use case. Problems we hit, what they actually broke, and how we fixed them. Everything you need to replicate it.
+This repo is where we document what we build, what breaks, and how we fix it. Not a product — a working lab notebook made public.
 
 ---
 
 ## The Use Case
 
-Zero-human lab operation. Multiple entities, multiple agents, no humans in the loop. Five agents running simultaneously:
+Zero-human lab operation. Multiple entities, multiple agents, no humans checking in.
+
+Five gateway agents — each with their own profile, memory, Telegram topic, and cron schedule:
 - CEO agent — processes the world, writes findings to a shared brain
 - BMM agent — handles customer support
 - Siren agent — runs daily batch pipelines
 - Lab agent — executes experiments
 - Business Analyst — triggered on demand via mention
 
-Each agent with its own profile, memory, Telegram topic, and cron schedule. All coordinated through shared brain files. None of them blocking each other.
+Plus internal cron agents (Knowledge Extractor, Team State Engineer, Process Engineer, Epoch Evaluator, Wiki Keeper) — spawned as in-memory workers by the CEO's cron jobs. These don't need their own gateway since they're lightweight workers, not standalone agents.
+
+Each agent coordinates through shared brain files. None of them blocking each other.
 
 ---
 
 ## What's In Here
 
-**MULTI-AGENT-FLEET-GUIDE.md** — The full field manual. Architecture, all 6 patches, the re-apply script, fleet coordination logic, what to do when it breaks after an update.
+**MULTI-AGENT-FLEET-GUIDE.md** — The field manual. Architecture, all 6 patches, the re-apply script, fleet coordination logic, what to do when it breaks after an update.
 
 **THREAD.md** — The Twitter thread. Three versions: 3-tweet (blue tick), 10-tweet (standard), single-tweet. All aligned to the guide.
 
@@ -53,9 +57,13 @@ bash patches/reapply-all-patches.sh
 
 ## The Architecture
 
-One codebase (`hermes-agent/`) on disk. Each agent its own OS process with its own `HERMES_HOME` pointing to its own profile directory — Hermes's native multi-user isolation. Each profile = isolated memory, state, sessions, cron DB. Six PM2 entries, six cron schedulers, zero cross-blocking.
+One codebase (`hermes-agent/`) on disk. Two types of agents:
 
-Each with its own Telegram bot in its own group/topic. Routing by mention pattern.
+**Gateway agents** — full separate OS processes, each with its own `HERMES_HOME`. Five of these (CEO, Lab, BMM, Siren, BA). Each has its own profile directory, isolated memory/state/sessions/cron DB, own Telegram bot, own cron scheduler embedded in the gateway process. Six PM2 entries, six processes, zero cross-blocking.
+
+**Internal cron agents** — in-memory workers spawned by the CEO's cron jobs. Knowledge Extractor, Team State Engineer, Process Engineer, Epoch Evaluator, Wiki Keeper. These are instantiated by the AIAgent class during cron execution, not separate gateway processes. They share the CEO's HERMES_HOME memory system but each has its own isolated working state via profile-scoped directories.
+
+Each gateway agent with its own Telegram bot in its own group/topic. Routing by mention pattern.
 
 ---
 
@@ -76,11 +84,13 @@ Each with its own Telegram bot in its own group/topic. Routing by mention patter
 
 ```bash
 # 1. Install Hermes once at ~/.hermes/hermes-agent
-# 2. Create one profile per agent at ~/.hermes/profiles/<name>/
-# 3. One Telegram bot per agent, each in its own group/topic
-# 4. PM2 ecosystem config — one entry per agent with its own HERMES_HOME
+# 2. Create one profile per gateway agent at ~/.hermes/profiles/<name>/
+# 3. One Telegram bot per gateway agent, each in its own group/topic
+# 4. PM2 ecosystem config — one entry per gateway agent with its own HERMES_HOME
 # 5. After every hermes update:
 bash patches/reapply-all-patches.sh
 ```
 
-Zero humans. Five agents. One coordinated fleet.
+---
+
+More to come as we build. Watch this space.
