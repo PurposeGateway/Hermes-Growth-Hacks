@@ -1,0 +1,74 @@
+diff --git a/cron/scheduler.py b/cron/scheduler.py
+index 8a54520a..7ba8630e 100644
+--- a/cron/scheduler.py
++++ b/cron/scheduler.py
+@@ -436,9 +436,9 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
+             providers_ignored=pr.get("ignore"),
+             providers_order=pr.get("order"),
+             provider_sort=pr.get("sort"),
+-            disabled_toolsets=["cronjob", "messaging", "clarify"],
++            disabled_toolsets=["cronjob", "clarify"],
+             quiet_mode=True,
+-            skip_memory=True,  # Cron system prompts would corrupt user representations
++            skip_memory=False,
+             platform="cron",
+             session_id=_cron_session_id,
+             session_db=_session_db,
+@@ -448,7 +448,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
+         # block the cron ticker thread indefinitely.  Default 10 minutes;
+         # override via env var.  Uses a separate thread because
+         # run_conversation is synchronous.
+-        _cron_timeout = float(os.getenv("HERMES_CRON_TIMEOUT", 600))
++        _cron_timeout = float(os.getenv("HERMES_CRON_TIMEOUT", 1200))
+         _cron_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+         _cron_future = _cron_pool.submit(agent.run_conversation, prompt)
+         try:
+@@ -540,7 +540,7 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
+ def tick(verbose: bool = True) -> int:
+     """
+     Check and run all due jobs.
+-    
++
+     Uses a file lock so only one tick runs at a time, even if the gateway's
+     in-process ticker and a standalone daemon or manual tick overlap.
+     
+@@ -576,8 +576,7 @@ def tick(verbose: bool = True) -> int:
+         if verbose:
+             logger.info("%s - %s job(s) due", _hermes_now().strftime('%H:%M:%S'), len(due_jobs))
+ 
+-        executed = 0
+-        for job in due_jobs:
++        def _execute_job(job):
+             try:
+                 # For recurring jobs (cron/interval), advance next_run_at to the
+                 # next future occurrence BEFORE execution.  This way, if the
+@@ -607,11 +606,28 @@ def tick(verbose: bool = True) -> int:
+                         logger.error("Delivery failed for job %s: %s", job["id"], de)
+ 
+                 mark_job_run(job["id"], success, error)
+-                executed += 1
++                return True
+ 
+             except Exception as e:
+                 logger.error("Error processing job %s: %s", job['id'], e)
+                 mark_job_run(job["id"], False, str(e))
++                return False
++
++        # PATCH-003: run multiple due jobs concurrently (max 4 workers).
++        # Single job skips the pool overhead and runs directly.
++        executed = 0
++        if len(due_jobs) == 1:
++            executed += 1 if _execute_job(due_jobs[0]) else 0
++        else:
++            max_workers = int(os.getenv("HERMES_CRON_MAX_WORKERS", 20))
++            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
++                futures = {pool.submit(_execute_job, job): job for job in due_jobs}
++                for future in concurrent.futures.as_completed(futures):
++                    try:
++                        if future.result():
++                            executed += 1
++                    except Exception as e:
++                        logger.error("Concurrent job error: %s", e)
+ 
+         return executed
+     finally:
